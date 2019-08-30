@@ -1,0 +1,10 @@
+[package]
+name = "ralonzo"
+description = "a lisp interpreter written in Rust. A spiritual relative of : https://github.com/lonnen/alonzo"
+version = "0.1.0"
+authors = ["lonnen <chris.lonnen@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
