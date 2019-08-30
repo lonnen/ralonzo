@@ -48,25 +48,37 @@ fn tokenize(expr: String) -> Vec<String> {
         .collect()
 }
 
-// parse the token stream into expressions
+/// read a Scheme expression from a string.
 fn parse<'a>(tokens: &'a [String]) -> Result<(LispExp, &'a [String]), LispError> {
     let (token, rest) = tokens.split_first()
         .ok_or(
             LispError::Reason("could not get token".to_string())
         )?;
     match &token[..] {
-        "(" => read_seq(rest),
+        "(" => read_from_tokens(rest),
         ")" => Err(LispError::Reason("unexpected ')'".to_string())),
         _ => Ok((parse_atom(token), rest)),
     }
 }
 
-fn read_seq<'a>(tokens:  &'a [String]) -> Result<(LispExp, &'a [String]), LispError> {
-    let es: Vec<LispExp> = vec![];
-    let xs = tokens;
+/// read an expression from a sequence of tokens
+fn read_from_tokens<'a>(tokens:  &'a [String]) -> Result<(LispExp, &'a [String]), LispError> {
+    let mut expressions: Vec<LispExp> = vec![];
+    let mut xs = tokens;
     
     loop {
-
+        let (next_token, rest) = xs
+            .split_first()
+            .ok_or(LispError::Reason("could not find closing ')".to_string()))
+            ?;
+        match next_token.as_ref() {
+            ")" => return Ok((LispExp::List(expressions), rest)),
+            _ => {
+                let (expression, new_xs) = parse(&xs)?;
+                expressions.push(expression);
+                xs = new_xs;
+            }
+        }
     }
 }
 
