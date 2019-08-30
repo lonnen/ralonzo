@@ -5,6 +5,7 @@
 //! in any other language
 
 use std::collections::HashMap;
+use std::num::ParseFloatError;
 
 /// all supported kinds of values
 #[derive(Clone)]
@@ -56,7 +57,7 @@ fn parse<'a>(tokens: &'a [String]) -> Result<(LispExp, &'a [String]), LispError>
         )?;
     match &token[..] {
         "(" => read_from_tokens(rest),
-        ")" => Err(LispError::Reason("unexpected ')'".to_string())),
+        ")" => Err(LispError::Reason("unexpected ')'".to_string())),  // should be unreachable?
         _ => Ok((parse_atom(token), rest)),
     }
 }
@@ -83,7 +84,11 @@ fn read_from_tokens<'a>(tokens:  &'a [String]) -> Result<(LispExp, &'a [String])
 }
 
 fn parse_atom(token: &str) -> LispExp {
-    LispExp::Number(7.0)
+    let potential_float:  Result<f64, ParseFloatError> =  token.parse();
+    match potential_float {
+        Ok(v) => LispExp::Number(v),
+        Err(_) => LispExp::Symbol(token.to_string().clone())
+    }
 }
 
 
