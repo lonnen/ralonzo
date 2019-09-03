@@ -13,6 +13,7 @@ enum LispExp {
     Symbol(String),
     Number(f64),
     List(Vec<LispExp>),
+    Func(fn(&[LispExp]) -> Result<LispExp, LispError>), // lambda
 }
 
 /// all supported kinds of errors
@@ -36,7 +37,7 @@ impl ToString for LispError {
 /// memory and execution environment
 #[derive(Clone)]
 struct LispEnv {
-    data: HashMap<String, LispEnv>,
+    data: HashMap<String, LispExp>,
 }
 
 /// normalize program input into a token stream
@@ -83,11 +84,58 @@ fn read_from_tokens<'a>(tokens:  &'a [String]) -> Result<(LispExp, &'a [String])
     }
 }
 
+/// yield an atom from a token
 fn parse_atom(token: &str) -> LispExp {
     let potential_float:  Result<f64, ParseFloatError> =  token.parse();
     match potential_float {
         Ok(v) => LispExp::Number(v),
         Err(_) => LispExp::Symbol(token.to_string().clone())
+    }
+}
+
+
+/// The Environment is where Things Happen
+/// Users will augment this usin (`define` symbol val)
+fn default_env() -> LispEnv {
+    let mut data: HashMap<String, LispExp> = HashMap::new();
+    data.insert(
+        "+".to_string(),
+        LispExp::Func(
+            |args: &[LispExp]| -> Result<LispExp, LispError> {
+                let sum = parse_list_of_floats(args)?
+                    .iter()
+                    .fold(0.0, |sum, a| sum + a);
+                Ok(LispExp::Number(sum))
+            }
+        ),
+    );
+    data.insert(
+        "-".to_string(),
+         LispExp::Func(
+            |args: &[LispExp]| -> Result<LispExp, LispError> {
+                let sum = parse_list_of_floats(args)?
+                    .iter()
+                    .fold(0.0, |sum, a| sum - a);
+                Ok(LispExp::Number(sum))
+            }
+        ),
+    );
+
+    LispEnv {data}
+}
+
+fn parse_list_of_floats(args: &[LispExp]) ->  Result<Vec<f64>, LispError> {
+    args
+        .iter()
+        .map(|x| parse_single_float(x))
+        .collect()
+}
+
+
+fn parse_single_float(exp: &LispExp) -> Result<f64, LispError> {
+    match exp {
+        LispExp::Number(num) => Ok(*num),
+        _ => Err(LispError::Reason("expected a number".to_string())),
     }
 }
 
