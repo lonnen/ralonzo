@@ -131,11 +131,47 @@ fn parse_list_of_floats(args: &[LispExp]) ->  Result<Vec<f64>, LispError> {
         .collect()
 }
 
-
 fn parse_single_float(exp: &LispExp) -> Result<f64, LispError> {
     match exp {
         LispExp::Number(num) => Ok(*num),
         _ => Err(LispError::Reason("expected a number".to_string())),
+    }
+}
+
+fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
+    match exp {
+        LispExp::Symbol(k) =>
+            env.data.get(k)
+                .ok_or(
+                    LispError::Reason(
+                        format!("unexpected symbol k='{}'", k)
+                    )
+                )
+                .map(|x| x.clone())
+        ,
+        LispExp::Number(_a) => Ok(exp.clone()),
+        LispExp::List(list) => {
+            let first_form = list
+                .first()
+                .ok_or(LispError::Reason("expected a non-empty list".to_string()))?;
+            let arg_forms = &list[1..];
+            let first_eval = eval(first_form, env)?;
+            match first_eval {
+                LispExp::Func(f) => {
+                    let args_eval = arg_forms
+                        .iter()
+                        .map(|x| eval(x, env))
+                        .collect::<Result<Vec<LispExp>, LispError>>();
+                    f(&args_eval?)
+                },
+                _ => Err(
+                    LispError::Reason("first form must be a function".to_string())
+                )
+            }
+        },
+        LispExp::Func(_) => Err(
+            LispError::Reason("unexpected form".to_string())
+        )
     }
 }
 
