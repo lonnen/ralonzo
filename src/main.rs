@@ -5,6 +5,8 @@
 //! in any other language
 
 use std::collections::HashMap;
+use std::fmt;
+use std::io;
 use std::num::ParseFloatError;
 
 /// all supported kinds of values
@@ -14,6 +16,25 @@ enum LispExp {
     Number(f64),
     List(Vec<LispExp>),
     Func(fn(&[LispExp]) -> Result<LispExp, LispError>), // lambda
+}
+
+impl fmt::Display for LispExp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let str  = match self {
+            LispExp::Symbol(s) => s.clone(),
+            LispExp::Number(n) => n.to_string(),
+            LispExp::List(list) => {
+                let xs: Vec<String> = list
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect();
+                format!("({})", xs.join(","))
+            },
+            LispExp::Func(_) => "Function {}".to_string(),
+        };
+
+        write!(f, "{}", str)
+    }
 }
 
 /// all supported kinds of errors
@@ -113,10 +134,12 @@ fn default_env() -> LispEnv {
         "-".to_string(),
          LispExp::Func(
             |args: &[LispExp]| -> Result<LispExp, LispError> {
-                let sum = parse_list_of_floats(args)?
-                    .iter()
-                    .fold(0.0, |sum, a| sum - a);
-                Ok(LispExp::Number(sum))
+                let floats = parse_list_of_floats(args)?;
+
+                let first = *floats.first().ok_or(LispError::Reason("expected at least one number".to_string()))?;
+                let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
+
+                Ok(LispExp::Number(first - sum_of_rest))
             }
         ),
     );
@@ -175,8 +198,35 @@ fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
     }
 }
 
+fn parse_eval(expr: String, env: &mut LispEnv) -> Result<LispExp, LispError> {
+    let (parsed_exp, _) = parse(&tokenize(expr))?;
+    let evaled_exp = eval(&parsed_exp, env)?;
+
+    Ok(evaled_exp)
+}
+
+fn slurp_expr() -> String {
+    let mut expr = String::new();
+
+    io::stdin().read_line(&mut expr)
+        .expect("Failed to read line");
+
+    expr
+}
 
 fn main() {
     // PROGRAM -> parse -> AST -> eval -> RESULT
-    println!("Hello, world!");
+    let env = &mut default_env();
+    loop {
+        println!("lisp >");
+        let expr = slurp_expr();
+        match parse_eval(expr, env) {
+            Ok(res) => println!("// 🥰 => {}", res),
+            Err(e) => match e {
+                LispError::Reason(msg) => println!("// 🤔 => {}", msg),
+                LispError::SyntaxErr(l, c) => println!("syntax error at line {}, col {}", l, c),
+                LispError::UnbalancedParens(n) => println!("missing {} parens", n),
+            }
+        }
+    }
 }
