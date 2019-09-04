@@ -12,17 +12,18 @@ use std::num::ParseFloatError;
 /// all supported kinds of values
 #[derive(Clone)]
 enum LispExp {
-    Symbol(String),
-    Number(f64),
-    List(Vec<LispExp>),
+    Bool(bool),
     Func(fn(&[LispExp]) -> Result<LispExp, LispError>), // lambda
+    List(Vec<LispExp>),
+    Number(f64),
+    Symbol(String),
 }
 
 impl fmt::Display for LispExp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let str  = match self {
-            LispExp::Symbol(s) => s.clone(),
-            LispExp::Number(n) => n.to_string(),
+        let str = match self {
+            LispExp::Bool(b) => b.to_string(),
+            LispExp::Func(_) => "Function {}".to_string(),
             LispExp::List(list) => {
                 let xs: Vec<String> = list
                     .iter()
@@ -30,7 +31,8 @@ impl fmt::Display for LispExp {
                     .collect();
                 format!("({})", xs.join(","))
             },
-            LispExp::Func(_) => "Function {}".to_string(),
+            LispExp::Number(n) => n.to_string(),
+            LispExp::Symbol(s) => s.clone(),
         };
 
         write!(f, "{}", str)
@@ -67,7 +69,7 @@ fn tokenize(expr: String) -> Vec<String> {
         .replace("(", " ( ")
         .replace(")", " ) ")
         .split_whitespace() // quick 'n dirty
-        .map(|x|  x.to_string())
+        .map(|x| x.to_string())
         .collect()
 }
 
@@ -79,13 +81,13 @@ fn parse<'a>(tokens: &'a [String]) -> Result<(LispExp, &'a [String]), LispError>
         )?;
     match &token[..] {
         "(" => read_from_tokens(rest),
-        ")" => Err(LispError::Reason("unexpected ')'".to_string())),  // should be unreachable?
+        ")" => Err(LispError::Reason("unexpected ')'".to_string())), // should be unreachable?
         _ => Ok((parse_atom(token), rest)),
     }
 }
 
 /// read an expression from a sequence of tokens
-fn read_from_tokens<'a>(tokens:  &'a [String]) -> Result<(LispExp, &'a [String]), LispError> {
+fn read_from_tokens<'a>(tokens: &'a [String]) -> Result<(LispExp, &'a [String]), LispError> {
     let mut expressions: Vec<LispExp> = vec![];
     let mut xs = tokens;
     
@@ -107,10 +109,16 @@ fn read_from_tokens<'a>(tokens:  &'a [String]) -> Result<(LispExp, &'a [String])
 
 /// yield an atom from a token
 fn parse_atom(token: &str) -> LispExp {
-    let potential_float:  Result<f64, ParseFloatError> =  token.parse();
-    match potential_float {
-        Ok(v) => LispExp::Number(v),
-        Err(_) => LispExp::Symbol(token.to_string().clone())
+    match token.as_ref() {
+        "true" => LispExp::Bool(true),
+        "false" => LispExp::Bool(false),
+        _ => {
+            let potential_float: Result<f64, ParseFloatError> = token.parse();
+            match potential_float {
+                Ok(v) => LispExp::Number(v),
+                Err(_) => LispExp::Symbol(token.to_string().clone())
+            }        
+        }
     }
 }
 
@@ -147,7 +155,7 @@ fn default_env() -> LispEnv {
     LispEnv {data}
 }
 
-fn parse_list_of_floats(args: &[LispExp]) ->  Result<Vec<f64>, LispError> {
+fn parse_list_of_floats(args: &[LispExp]) -> Result<Vec<f64>, LispError> {
     args
         .iter()
         .map(|x| parse_single_float(x))
@@ -163,16 +171,10 @@ fn parse_single_float(exp: &LispExp) -> Result<f64, LispError> {
 
 fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
     match exp {
-        LispExp::Symbol(k) =>
-            env.data.get(k)
-                .ok_or(
-                    LispError::Reason(
-                        format!("unexpected symbol k='{}'", k)
-                    )
-                )
-                .map(|x| x.clone())
-        ,
-        LispExp::Number(_a) => Ok(exp.clone()),
+        LispExp::Bool(_b) => Ok(exp.clone()),
+        LispExp::Func(_) => Err(
+            LispError::Reason("unexpected form".to_string())
+        ),
         LispExp::List(list) => {
             let first_form = list
                 .first()
@@ -192,9 +194,16 @@ fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
                 )
             }
         },
-        LispExp::Func(_) => Err(
-            LispError::Reason("unexpected form".to_string())
-        )
+        LispExp::Number(_a) => Ok(exp.clone()),
+        LispExp::Symbol(k) =>
+            env.data.get(k)
+                .ok_or(
+                    LispError::Reason(
+                        format!("unexpected symbol k='{}'", k)
+                    )
+                )
+                .map(|x| x.clone())
+        ,
     }
 }
 
