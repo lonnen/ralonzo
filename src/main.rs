@@ -216,19 +216,25 @@ fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
                 .first()
                 .ok_or(LispError::Reason("expected a non-empty list".to_string()))?;
             let arg_forms = &list[1..];
-            let first_eval = eval(first_form, env)?;
-            match first_eval {
-                LispExp::Func(f) => {
-                    let args_eval = arg_forms
-                        .iter()
-                        .map(|x| eval(x, env))
-                        .collect::<Result<Vec<LispExp>, LispError>>();
-                    f(&args_eval?)
-                },
-                _ => Err(
-                    LispError::Reason("first form must be a function".to_string())
-                )
+            match eval_built_in_form(first_form, arg_forms, env) {
+                Some(res) => res,
+                None => {
+                    let first_eval = eval(first_form, env)?;
+                    match first_eval {
+                        LispExp::Func(f) => {
+                            let args_eval = arg_forms
+                                .iter()
+                                .map(|x| eval(x, env))
+                                .collect::<Result<Vec<LispExp>, LispError>>();
+                            f(&args_eval?)
+                        },
+                        _ => Err(
+                            LispError::Reason("first form must be a function".to_string())
+                        )
+                    }
+                }
             }
+            
         },
         LispExp::Number(_a) => Ok(exp.clone()),
         LispExp::Symbol(k) =>
@@ -257,6 +263,73 @@ fn slurp_expr() -> String {
         .expect("Failed to read line");
 
     expr
+}
+
+fn eval_built_in_form(exp: &LispExp, arg_forms:  &[LispExp], env: &mut LispEnv) -> Option<Result<LispExp, LispError>> {
+    match exp {
+        LispExp::Symbol(s) =>
+            match s.as_ref() {
+                "if" => Some(eval_if_args(arg_forms, env)),
+                "def" => Some(eval_def_args(arg_forms, env)),
+                _ => None
+            }
+        ,
+        _ => None,
+    }
+}
+
+fn eval_if_args(arg_forms: &[LispExp], env: &mut LispEnv) -> Result<LispExp, LispError> {
+    let test_form = arg_forms.first().ok_or(
+        LispError::Reason(
+            "expected test form".to_string(),
+        )
+    )?;
+    let test_eval = eval(test_form, env)?;
+    match test_eval {
+        LispExp::Bool(b) => {
+            let form_idx = if b { 1 } else { 2 };
+            let res_form = arg_forms.get(form_idx)
+                .ok_or(LispError::Reason(
+                    format!("expected form idx={}", form_idx)
+                ))?;
+            let res_eval = eval(res_form, env);
+
+            res_eval
+        },
+        _ => Err(
+            LispError::Reason(format!("unexpected test form = `{}`", test_form.to_string()))
+        )
+    }
+}
+
+fn eval_def_args(arg_forms: &[LispExp], env: &mut LispEnv) -> Result<LispExp, LispError> {
+    let first_form = arg_forms.first().ok_or(
+        LispError::Reason(
+            "expected first form".to_string(),
+        )
+    )?;
+    let first_str = match first_form {
+        LispExp::Symbol(s) => Ok(s.clone()),
+        _ => Err(LispError::Reason(
+            "expected first form to be a symbol".to_string(),
+        ))
+    }?;
+    let second_form = arg_forms.get(1).ok_or(
+        LispError::Reason(
+            "expected second form".to_string(),
+        )
+    )?;
+    if arg_forms.len() > 2 {
+        return Err(
+            LispError::Reason(
+                "def can only have two forms".to_string()
+            )
+        )
+    }
+    let second_eval = eval(second_form, env)?;
+    env.data.insert(first_str, second_eval);
+
+    Ok(first_form.clone())
 }
 
 fn main() {
