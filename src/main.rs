@@ -122,6 +122,22 @@ fn parse_atom(token: &str) -> LispExp {
     }
 }
 
+macro_rules! ensure_tonicity {
+    ($check_fn:expr) => {{
+        |args: &[LispExp]| -> Result<LispExp, LispError> {
+            let floats = parse_list_of_floats(args)?;
+            let first = floats.first().ok_or(LispError::Reason("expected at least one number".to_string()))?;
+            let rest = &floats[1..];
+            fn f (prev: &f64, xs: &[f64]) -> bool {
+                match xs.first() {
+                    Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
+                    None => true,
+                }
+            };
+            Ok(LispExp::Bool(f(first, rest)))
+        }
+    }};
+}
 
 /// The Environment is where Things Happen
 /// Users will augment this usin (`define` symbol val)
@@ -140,7 +156,7 @@ fn default_env() -> LispEnv {
     );
     data.insert(
         "-".to_string(),
-         LispExp::Func(
+        LispExp::Func(
             |args: &[LispExp]| -> Result<LispExp, LispError> {
                 let floats = parse_list_of_floats(args)?;
 
@@ -150,6 +166,26 @@ fn default_env() -> LispEnv {
                 Ok(LispExp::Number(first - sum_of_rest))
             }
         ),
+    );
+    data.insert(
+        "=".to_string(),
+        LispExp::Func(ensure_tonicity!(|a, b| a == b))
+    );
+    data.insert(
+        ">".to_string(),
+        LispExp::Func(ensure_tonicity!(|a, b| a > b))
+    );
+    data.insert(
+        ">=".to_string(),
+        LispExp::Func(ensure_tonicity!(|a, b| a >= b))
+    );
+    data.insert(
+        "<".to_string(),
+        LispExp::Func(ensure_tonicity!(|a, b| a < b))
+    );
+    data.insert(
+        "<=".to_string(),
+        LispExp::Func(ensure_tonicity!(|a, b| a <= b))
     );
 
     LispEnv {data}
