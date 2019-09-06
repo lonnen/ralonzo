@@ -8,15 +8,23 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io;
 use std::num::ParseFloatError;
+use std::rc::Rc;
 
 /// all supported kinds of values
 #[derive(Clone)]
 enum LispExp {
     Bool(bool),
-    Func(fn(&[LispExp]) -> Result<LispExp, LispError>), // lambda
+    Func(fn(&[LispExp]) -> Result<LispExp, LispError>),
+    Lambda(LispLambda),
     List(Vec<LispExp>),
     Number(f64),
     Symbol(String),
+}
+
+#[derive(Clone)]
+struct LispLambda {
+    params_exp: Rc<LispExp>,
+    body_exp: Rc<LispExp>,
 }
 
 impl fmt::Display for LispExp {
@@ -24,6 +32,7 @@ impl fmt::Display for LispExp {
         let str = match self {
             LispExp::Bool(b) => b.to_string(),
             LispExp::Func(_) => "Function {}".to_string(),
+            LispExp::Lambda(_) => "Lambda {}".to_string(),
             LispExp::List(list) => {
                 let xs: Vec<String> = list
                     .iter()
@@ -59,8 +68,9 @@ impl ToString for LispError {
 
 /// memory and execution environment
 #[derive(Clone)]
-struct LispEnv {
+struct LispEnv<'a> {
     data: HashMap<String, LispExp>,
+    outer: Option<&'a LispEnv<'a>>,
 }
 
 /// normalize program input into a token stream
@@ -139,9 +149,7 @@ macro_rules! ensure_tonicity {
     }};
 }
 
-/// The Environment is where Things Happen
-/// Users will augment this usin (`define` symbol val)
-fn default_env() -> LispEnv {
+fn default_env<'a>() -> LispEnv<'a> {
     let mut data: HashMap<String, LispExp> = HashMap::new();
     data.insert(
         "+".to_string(),
@@ -188,7 +196,7 @@ fn default_env() -> LispEnv {
         LispExp::Func(ensure_tonicity!(|a, b| a <= b))
     );
 
-    LispEnv {data}
+    LispEnv {data, outer: None}
 }
 
 fn parse_list_of_floats(args: &[LispExp]) -> Result<Vec<f64>, LispError> {
@@ -205,12 +213,26 @@ fn parse_single_float(exp: &LispExp) -> Result<f64, LispError> {
     }
 }
 
+fn env_get(k: &str, env: &LispEnv) -> Option<LispExp> {
+    match env.data.get(k) {
+        Some(exp) => Some(exp.clone()),
+        None => {
+            match  &env.outer {
+                Some(outer_env) => env_get(k, &outer_env),
+                None => None
+            }
+        }
+    }
+}
+
 fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
     match exp {
         LispExp::Bool(_b) => Ok(exp.clone()),
         LispExp::Func(_) => Err(
             LispError::Reason("unexpected form".to_string())
         ),
+        LispExp::Lambda(_) => Err(
+            LispError::Reason("unexpected form".to_string())),
         LispExp::List(list) => {
             let first_form = list
                 .first()
@@ -222,11 +244,11 @@ fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
                     let first_eval = eval(first_form, env)?;
                     match first_eval {
                         LispExp::Func(f) => {
-                            let args_eval = arg_forms
-                                .iter()
-                                .map(|x| eval(x, env))
-                                .collect::<Result<Vec<LispExp>, LispError>>();
-                            f(&args_eval?)
+                            f(&eval_forms(arg_forms, env)?)
+                        },
+                        LispExp::Lambda(lambda) => {
+                            let new_env = &mut env_for_lambda(lambda.params_exp, arg_forms, env)?;
+                            eval(&lambda.body_exp, new_env)
                         },
                         _ => Err(
                             LispError::Reason("first form must be a function".to_string())
@@ -234,11 +256,10 @@ fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
                     }
                 }
             }
-            
         },
         LispExp::Number(_a) => Ok(exp.clone()),
         LispExp::Symbol(k) =>
-            env.data.get(k)
+            env_get(k, env)
                 .ok_or(
                     LispError::Reason(
                         format!("unexpected symbol k='{}'", k)
@@ -247,6 +268,59 @@ fn eval(exp: &LispExp, env: &mut LispEnv) -> Result<LispExp, LispError> {
                 .map(|x| x.clone())
         ,
     }
+}
+
+fn eval_forms(arg_forms: &[LispExp], env: &mut LispEnv) -> Result<Vec<LispExp>, LispError> {
+    arg_forms
+        .iter()
+        .map(|x| eval(x, env))
+        .collect()
+}
+
+fn env_for_lambda<'a> (
+    params: Rc<LispExp>,
+    arg_forms: &[LispExp],
+    outer_env: &'a mut LispEnv,
+) -> Result<LispEnv<'a>, LispError> {
+    let ks = parse_list_of_symbol_strings(params)?;
+    if ks.len() != arg_forms.len() {
+        return Err(
+            LispError::Reason(
+                format!("expected {} arguments, got {}", ks.len(), arg_forms.len())
+            )
+        );
+    }
+    let vs = eval_forms(arg_forms, outer_env)?;
+    let mut data: HashMap<String, LispExp> = HashMap::new();
+    for (k, v) in ks.iter().zip(vs.iter()) {
+        data.insert(k.clone(), v.clone());
+    }
+    Ok(
+        LispEnv {
+            data,
+            outer: Some(outer_env),
+        }
+    )
+}
+
+fn parse_list_of_symbol_strings(form: Rc<LispExp>)  -> Result<Vec<String>, LispError> {
+    let list = match form.as_ref() {
+        LispExp::List(s) => Ok(s.clone()),
+        _ => Err(LispError::Reason(
+            "expected args form to be a list".to_string(),
+        ))
+    }?;
+    list.iter()
+        .map(
+            |x| {
+                match x {
+                    LispExp::Symbol(s) => Ok(s.clone()),
+                    _ => Err(LispError::Reason(
+                        "expected symbols in the argument list".to_string(),
+                    )),
+                }
+            }
+        ).collect()
 }
 
 fn parse_eval(expr: String, env: &mut LispEnv) -> Result<LispExp, LispError> {
@@ -271,11 +345,41 @@ fn eval_built_in_form(exp: &LispExp, arg_forms:  &[LispExp], env: &mut LispEnv) 
             match s.as_ref() {
                 "if" => Some(eval_if_args(arg_forms, env)),
                 "def" => Some(eval_def_args(arg_forms, env)),
+                "fn" => Some(eval_lambda_args(arg_forms)),
                 _ => None
             }
         ,
         _ => None,
     }
+}
+
+fn eval_lambda_args(arg_forms: &[LispExp]) -> Result<LispExp, LispError> {
+    let params_exp = arg_forms.first().ok_or(
+        LispError::Reason(
+            "unexpected args form".to_string(),
+        )
+    )?;
+    let body_exp = arg_forms.get(1).ok_or(
+        LispError::Reason(
+            "expected second form".to_string(),
+        )
+    )?;
+    if arg_forms.len() > 2 {
+        return Err(
+            LispError::Reason(
+                "fn definition can only have two forms".to_string(),
+            )
+        )
+    }
+
+    Ok(
+        LispExp::Lambda(
+            LispLambda {
+                body_exp: Rc::new(body_exp.clone()),
+                params_exp: Rc::new(params_exp.clone()),
+            }
+        )
+    )
 }
 
 fn eval_if_args(arg_forms: &[LispExp], env: &mut LispEnv) -> Result<LispExp, LispError> {
