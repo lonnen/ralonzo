@@ -48,7 +48,6 @@ impl fmt::Display for LispExp {
 /// all supported kinds of errors
 #[derive(Debug)]
 enum LispError {
-    SyntaxErr(u32, u32),     // line num, column num
     UnbalancedParens(usize), // # of missing close parens
     Reason(String),          // catch all for first impl
 }
@@ -56,7 +55,6 @@ enum LispError {
 impl ToString for LispError {
     fn to_string(&self) -> String {
         match self {
-            LispError::SyntaxErr(l, c) => format!("syntax error at line {}, col {}", l, c),
             LispError::UnbalancedParens(n) => format!("missing {} parens", n),
             LispError::Reason(s) => String::from(s),
         }
@@ -399,7 +397,6 @@ fn main() {
             Ok(res) => println!("// 🥰 => {}", res),
             Err(e) => match e {
                 LispError::Reason(msg) => println!("// 🤔 => {}", msg),
-                LispError::SyntaxErr(l, c) => println!("syntax error at line {}, col {}", l, c),
                 LispError::UnbalancedParens(n) => println!("missing {} parens", n),
             },
         }
