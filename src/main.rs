@@ -48,14 +48,12 @@ impl fmt::Display for LispExp {
 /// all supported kinds of errors
 #[derive(Debug)]
 enum LispError {
-    UnbalancedParens(usize), // # of missing close parens
     Reason(String),          // catch all for first impl
 }
 
 impl ToString for LispError {
     fn to_string(&self) -> String {
         match self {
-            LispError::UnbalancedParens(n) => format!("missing {} parens", n),
             LispError::Reason(s) => String::from(s),
         }
     }
@@ -397,7 +395,6 @@ fn main() {
             Ok(res) => println!("// 🥰 => {}", res),
             Err(e) => match e {
                 LispError::Reason(msg) => println!("// 🤔 => {}", msg),
-                LispError::UnbalancedParens(n) => println!("missing {} parens", n),
             },
         }
     }
