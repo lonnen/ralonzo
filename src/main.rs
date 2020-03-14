@@ -48,7 +48,7 @@ impl fmt::Display for LispExp {
 /// all supported kinds of errors
 #[derive(Debug)]
 enum LispError {
-    Reason(String),          // catch all for first impl
+    Reason(String), // catch all for first impl
 }
 
 impl ToString for LispError {
